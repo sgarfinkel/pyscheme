@@ -1,1 +1,1 @@
-(display "Hello world!")
+(display (+ 2 (* 1 3 2)))
