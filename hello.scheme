@@ -1,1 +1,1 @@
-(display (+ 2 (* 1 3 2)))
+(if (= (* 5 8) 40) (display "foo") (display "bar"))

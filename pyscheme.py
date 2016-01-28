@@ -5,15 +5,10 @@ from sys import argv
 # All scheme functions expect parameters as a list
 # And parse each one accordingly
 def scheme_display(params):
-    if len(params) > 1:
-        raise(Exception)
-    print params[0]
+    print params[0].lstrip('"').rstrip('"')
     return None
 
-def scheme_quote(params):
-    return params
-
-# Basic Math
+# Basic math
 def scheme_add(params):
     return sum(params)
 
@@ -24,81 +19,111 @@ def scheme_mult(params):
     return reduce(lambda x, y: x*y, params)
 
 def scheme_div(params):
-    return reduce(lambda x, y: float(x)/y, params)
+    v = reduce(lambda x, y: float(x)/y, params)
+    if v.is_integer():
+        return int(v)
+    return v
 
-func_dict = {'display'  : scheme_display,
-             'quote'    : scheme_quote,
-             '+'        : scheme_add,
-             '-'        : scheme_subtract,
-             '*'        : scheme_mult,
-             '/'        : scheme_div, 
-             }
+# Comparators
+def scheme_eq(params):
+    return len(set(params)) == 1
 
-# FOR DEBUGGING
-# Helper, not sure where to put this
-def pretty(l):
-    string = []
-    for e in l:
-        if isinstance(e, list):
-            string.append(pretty(e))
-        else:
-            string.append(str(e))
-    return ''.join(['\'(', ' '.join(string), ')'])
+def scheme_lt(params):
+    return all([x[i] < x[i+1] for i, x in enumerate(params[1:])])
 
-# Not sure if we need this
-# It's nice to have a defined type for functions, though
-class SchemeFunction:
+def scheme_gt(params):
+    return all([x[i] > x[i+1] for i, x in enumerate(params[1:])])
+
+def scheme_lte(params):
+    return not scheme_gt(params)
+
+def scheme_gte(params):
+    return not scheme_lt(params)
+
+# Logical operators
+def scheme_and(params):
+    # This works too
+    # return all(params)
+    return reduce(lambda x, y: x and y)
+
+def scheme_or(params):
+    # This works too
+    # return any(params)
+    return reduce(lambda x, y: x or y)
+
+def scheme_not(params):
+    return not params[0]
+
+# Environment
+class Env:
     def __init__(self):
-        pass
+        self.env = {'display'   : scheme_display,
+                    '+'         : scheme_add,
+                    '-'         : scheme_subtract,
+                    '*'         : scheme_mult,
+                    '/'         : scheme_div,
+                    '='         : scheme_eq,
+                    '<'         : scheme_lt,
+                    '>'         : scheme_gt,
+                    '<='        : scheme_lte,
+                    '>='        : scheme_gte,
+                    'and'       : scheme_and,
+                    'or'        : scheme_or,
+                    'not'       : scheme_not,
+                   }
+        self.parent = None
 
-# A generic symbol class, can be a primitive or instance of type SchemeFunction
-class Symbol:
-    def __init__(self, val, type=None):
-        self.val = val
-        self.name = None
-        self.params = None
-        self.type = type
-        # Type cast
-        # Just support strings, integers, and floats for now
-        if not type:
-            try:
-                self.val = float(self.val)
-                self.type = float
-                if self.val.is_integer():
-                    self.val = int(self.val)
-                    self.type = int
-            except ValueError:
-                if val.startswith('"') and val.endswith('"'):
-                    self.val = val.lstrip('"').rstrip('"')
-                    self.type = str
-                # Else it's type SchemeFunction
-                else:
-                    self.val = func_dict[val]
-                    self.type = SchemeFunction
+    def __setitem__(self, key, val):
+        self.env[key] = val
+
+    # Traverse the linked list to find the outermost environment
+    # Containing the binding we are looking for
+    def find(self, name):
+        if not name in self.env:
+            return self.parent.find(name)
+        return self.env[name]
+
+global_env = Env()
+
+# Binding
+class Binding:
+    def __init__(self, name=None, expr=None, env=None):
+        self.name = name[0]
+        self.params = name[1:]
+        self.expr = expr
+        self.env = env
 
     def __repr__(self):
-        if self.type == SchemeFunction:
-            return '<'+self.val.__name__+'>'
-        return '<'+str(self.val)+'>'
+        return 'name='+str(self.name)+';params='+str(self.params)+';expr='+str(self.expr)
 
-    def __str__(self):
-        return str(self.val)
+    # Private eval method, only visible if the binding is a function
+    def _eval(self, params=None):
+        local_expr = list(self.expr)
+        for k, v in zip(self.params, params):
+            for i, token in enumerate(self.expr):
+                if token == k:
+                    local_expr[i] = v
+        print local_expr
+        return eval_expr(local_expr, self.env)
 
-    def __call__(self):
-        if self.type == SchemeFunction:
-            return self.val(self.params)
-        return self.val
+    # Helper method--we don't hold onto the reference to the instance of the binding
+    # Only the method to evaluate, so we can't do type checking of the expression
+    # Instead, we use duck typing here to add the binding to the environment as a literal
+    # Or as an Python function
+    def eval(self):
+        if self.params:
+            return self._eval
+        else:
+            return self.expr
 
-    def set_params(self, params):
-        self.params = params
 
-    def type(self):
-        return self.type
-
+# Parser
 def tokenize(text):
     tokens = list()
     cur_token = list()
     in_string = False
+    q_count = 0
+    quote = False
     for char in text:
         # Handle whitespace
         if (char == ' ' or char == '\n') and not in_string:
@@ -119,10 +144,20 @@ def tokenize(text):
                 # And clear the cur_token
                 cur_token = list()
             tokens.append(char)
+            # Handle quote symbol, special case
+            if char == '(' and quote:
+                q_count += 1
+            elif char == ')' and quote:
+                q_count -= 1
+            if q_count == 0 and quote:
+                quote = not quote
+                tokens.append(')')
             continue
-        # Handle quote symbol, special case
+        # To make parsing easier, convert quote symbols
+        # Into their functional form
         if char == '\'' or char == '`':
-            tokens.append(char)
+            tokens.extend(['(', 'quote'])
+            quote = True
             continue
         # All other cases, append char
         cur_token.append(char)
@@ -135,65 +170,74 @@ def tokenize(text):
                 cur_token = list()
             in_string = not in_string
 
+    # When we're done, if we have a cur_token, append
+    # This is mainly for repl if you call a literal on its own
+    if cur_token:
+        tokens.append(''.join(cur_token))
+
     # Return our tokens
     return tokens
 
-def _parse(tokens, i):
-    parsed = list()
-    while i < len(tokens):
-        t = tokens[i]
-        # An open parenthesis denotes a new list
-        if t == '(':
-            (res, k) = _parse(tokens, i+1)
-            # If we have an empty list already, just replace
-            if not parsed:
-                parsed = res
-            # Otherwise, this needs to be appended
-            else:
-                parsed.append(res)
-            i = k
-        # If we get a close parenthesis we should return parsed
-        elif t == ')':
-            break
-        # Turn single quotes into a quote function
-        elif t == '\'' or t == '`':
-            # First parse the remaining tokens
-            (res, k) = _parse(tokens, i+1)
-            quote = [Symbol('quote'), res]
-            if not parsed:
-                parsed = quote
-            else:
-                parsed.append(quote)
-            i = k
-        else:
-            parsed.append(Symbol(t))
-        i += 1
-
-    return (parsed, i)
-
-
 # This recursively parses our tokens
 def parse(tokens):
-    (out, k) = _parse(tokens, 0)
+    out = _parse(tokens)
     return out
 
-# Evaluate the expression
-def eval_expr(expr):
-    env = list()
-    func = None
-    for t in expr:
-        if hasattr(t, 'type'):
-            if t.type == SchemeFunction:
-                func = t.val
-            else:
-                env.append(t.val)
-        else:
-            if func == scheme_quote:
-                env = t
-            else:
-                env.append(eval_expr(t))
-    return func(env)
+def _parse(tokens):
+    token = tokens.pop(0)
+    if token == '(':
+        parsed = []
+        while tokens[0] != ')':
+            parsed.append(_parse(tokens))
+        tokens.pop(0)
+        return parsed
+    else:
+        return cast(token)
 
+# Typecasting of tokens
+def cast(token):
+    try:
+        v = float(token)
+        if v.is_integer():
+            return int(v)
+    except ValueError:
+        # Bools
+        if token == '#t':
+            return True
+        elif token == '#f':
+            return False
+        # Everything else, including string literals
+        # Functions that work with strings can check for encapsulation in quotes
+        else:
+            return token
+
+def eval_expr(elem, env=global_env):
+    local_env = Env()
+    local_env.parent = env
+    # Any element that is a string should be in the environment
+    if isinstance(elem, str) and not (elem.startswith('"') and elem.endswith('"')):
+        return local_env.find(elem)
+    # Literals are anything that isn't a list or string
+    elif not isinstance(elem, list):
+        return elem
+    # Conditionals
+    elif elem[0] == 'if': # (if test conseq alt)
+        (func, test, conseq, alt) = elem
+        ret = (conseq if eval_expr(test, local_env) else alt)
+        return eval_expr(ret, local_env)
+    # Any list is a function, unless it's a literal list
+    elif elem[0] == 'quote': # '(v1...) or (quote (v1...))
+        return elem[1:]
+    # Define
+    elif elem[0] == 'define': #(define name expr) or (define (name params) expr)
+        (func, name, expr) = elem
+        bind = Binding(name, expr, local_env)
+        global_env[bind.name] = bind.eval()
+    # Otherwise it's in env, and we can evaluate it
+    else:
+        func = eval_expr(elem[0], local_env)
+        body = [eval_expr(e, local_env) for e in elem[1:]]
+        return func(body)
 
 
 # Read, eval, print
@@ -207,7 +251,7 @@ def rep(text):
 # Read, eval, print loop
 def repl():
     while True:
-        text = raw_input()
+        text = raw_input('pyscheme>')
         if text == '(exit)':
             break
         rep(text)
