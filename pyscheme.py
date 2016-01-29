@@ -1,4 +1,7 @@
 from sys import argv
+import operator
+import math
+import readline
 
 # This will go in a separate module eventually
 # Along with the dictionary of classes
@@ -42,14 +45,10 @@ def scheme_gte(params):
 
 # Logical operators
 def scheme_and(params):
-    # This works too
-    # return all(params)
-    return reduce(lambda x, y: x and y)
+    return all(params)
 
 def scheme_or(params):
-    # This works too
-    # return any(params)
-    return reduce(lambda x, y: x or y)
+    return any(params)
 
 def scheme_not(params):
     return not params[0]
@@ -57,20 +56,7 @@ def scheme_not(params):
 # Environment
 class Env:
     def __init__(self):
-        self.env = {'display'   : scheme_display,
-                    '+'         : scheme_add,
-                    '-'         : scheme_subtract,
-                    '*'         : scheme_mult,
-                    '/'         : scheme_div,
-                    '='         : scheme_eq,
-                    '<'         : scheme_lt,
-                    '>'         : scheme_gt,
-                    '<='        : scheme_lte,
-                    '>='        : scheme_gte,
-                    'and'       : scheme_and,
-                    'or'        : scheme_or,
-                    'not'       : scheme_not,
-                   }
+        self.env = dict()
         self.parent = None
 
     def __setitem__(self, key, val):
@@ -83,7 +69,26 @@ class Env:
             return self.parent.find(name)
         return self.env[name]
 
-global_env = Env()
+def std_env():
+    env = Env()
+    env.env = { 'display'   : scheme_display,
+                '+'         : scheme_add,
+                '-'         : scheme_subtract,
+                '*'         : scheme_mult,
+                '/'         : scheme_div,
+                '='         : scheme_eq,
+                '<'         : scheme_lt,
+                '>'         : scheme_gt,
+                '<='        : scheme_lte,
+                '>='        : scheme_gte,
+                'and'       : all,
+                'or'        : any,
+                'not'       : scheme_not,
+            }
+    env.env.update(vars(math))
+    return env
+
+global_env = std_env()
 
 # Binding
 class Binding:
@@ -98,13 +103,9 @@ class Binding:
 
     # Private eval method, only visible if the binding is a function
     def _eval(self, params=None):
-        local_expr = list(self.expr)
         for k, v in zip(self.params, params):
-            for i, token in enumerate(self.expr):
-                if token == k:
-                    local_expr[i] = v
-        print local_expr
-        return eval_expr(local_expr, self.env)
+            self.env[k] = v
+        return eval_expr(self.expr, self.env)
 
     # Helper method--we don't hold onto the reference to the instance of the binding
     # Only the method to evaluate, so we can't do type checking of the expression
@@ -180,15 +181,11 @@ def tokenize(text):
 
 # This recursively parses our tokens
 def parse(tokens):
-    out = _parse(tokens)
-    return out
-
-def _parse(tokens):
     token = tokens.pop(0)
     if token == '(':
         parsed = []
         while tokens[0] != ')':
-            parsed.append(_parse(tokens))
+            parsed.append(parse(tokens))
         tokens.pop(0)
         return parsed
     else:
@@ -211,9 +208,20 @@ def cast(token):
         else:
             return token
 
+def to_scheme(val):
+	# If input is literal True
+	if val is True:
+		return '#t'
+	# If input is literal False
+	elif val is False:
+		return '#f'
+	else:
+		return val
+
 def eval_expr(elem, env=global_env):
     local_env = Env()
     local_env.parent = env
+    print elem
     # Any element that is a string should be in the environment
     if isinstance(elem, str) and not (elem.startswith('"') and elem.endswith('"')):
         return local_env.find(elem)
@@ -233,6 +241,12 @@ def eval_expr(elem, env=global_env):
         (func, name, expr) = elem
         bind = Binding(name, expr, local_env)
         global_env[bind.name] = bind.eval()
+    # Lambda
+    elif elem[0] == 'lambda': #(lambda (params) (expr))
+        (func, name, expr) = elem
+        name.insert(0, None) # A lambda function has no name, only params
+        bind = Binding(name, expr, local_env)
+        return bind.eval()
     # Otherwise it's in env, and we can evaluate it
     else:
         func = eval_expr(elem[0], local_env)
@@ -245,8 +259,8 @@ def rep(text):
     tokens = tokenize(text)
     expr = parse(tokens)
     ret = eval_expr(expr)
-    if ret:
-        print ret
+    if ret != None:
+        print to_scheme(ret)
 
 # Read, eval, print loop
 def repl():

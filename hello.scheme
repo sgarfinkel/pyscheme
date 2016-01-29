@@ -1,1 +1,1 @@
-(if (= (* 5 8) 40) (display "foo") (display "bar"))
+((lambda (a b) (+ (* 2 a) b)) 5 6)
