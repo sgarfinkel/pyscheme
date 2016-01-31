@@ -2,13 +2,14 @@ from sys import argv
 import operator
 import math
 import readline
+import pprint
 
 # This will go in a separate module eventually
 # Along with the dictionary of classes
 # All scheme functions expect parameters as a list
 # And parse each one accordingly
 def scheme_display(params):
-    print params[0].lstrip('"').rstrip('"')
+    print params.lstrip('"').rstrip('"')
     return None
 
 # Basic math
@@ -62,6 +63,9 @@ class Env:
     def __setitem__(self, key, val):
         self.env[key] = val
 
+    def update(self, d):
+        self.env.update(d)
+
     # Traverse the linked list to find the outermost environment
     # Containing the binding we are looking for
     def find(self, name):
@@ -85,7 +89,7 @@ def std_env():
                 'or'        : any,
                 'not'       : scheme_not,
             }
-    env.env.update(vars(math))
+    env.update(vars(math))
     return env
 
 global_env = std_env()
@@ -93,8 +97,12 @@ global_env = std_env()
 # Binding
 class Binding:
     def __init__(self, name=None, expr=None, env=None):
-        self.name = name[0]
-        self.params = name[1:]
+        if isinstance(name, list):
+            self.name = name[0]
+            self.params = name[1:]
+        else:
+            self.name = name
+            self.params = None
         self.expr = expr
         self.env = env
 
@@ -118,6 +126,48 @@ class Binding:
             return self.expr
 
 
+def _tokenize(text):
+    tokens = list()
+    token = list()
+    in_str = False
+    quote = False
+    q_count = 0
+    for char in text:
+        if char == '"':
+            token.append(char)
+            if in_str:
+                tokens.append(''.join(token))
+                token = list()
+            in_str = not in_str
+        elif in_str:
+            token.append(char)
+        elif char == '(' or char == ')':
+            if len(token):
+                tokens.append(''.join(token))
+                token = list()
+            tokens.append(char)
+            if char == '(' and quote:
+                q_count += 1
+            elif char == ')' and quote:
+                q_count -= 1
+            if q_count == 0 and quote:
+                quote = not quote
+                tokens.append(')')
+        elif char == '\'' or char == '`':
+            quote = not quote
+            tokens.extend(['(', 'quote'])
+        elif not char == ' ':
+            token.append(char)
+        else:
+            if len(token):
+                tokens.append(''.join(token))
+                token = list()
+
+    if token:
+        tokens.append(''.join(token))
+    return tokens
+
+
 # Parser
 def tokenize(text):
     tokens = list()
@@ -127,7 +177,7 @@ def tokenize(text):
     quote = False
     for char in text:
         # Handle whitespace
-        if (char == ' ' or char == '\n') and not in_string:
+        if (char == ' ' or char == '\n' or char == '\r') and not in_string:
             # Only append if we have symbols to add
             # Catches instances of leading whitespace
             if len(cur_token):
@@ -197,6 +247,7 @@ def cast(token):
         v = float(token)
         if v.is_integer():
             return int(v)
+        return v
     except ValueError:
         # Bools
         if token == '#t':
@@ -206,6 +257,11 @@ def cast(token):
         # Everything else, including string literals
         # Functions that work with strings can check for encapsulation in quotes
         else:
+            # Handle string literals
+            if token.startswith('"') and token.endswith('"'):
+                token = token.replace('\\n', '\n')
+                token = token.replace('\\r', '\r')
+                token = token.replace('\\t', '\t')
             return token
 
 def to_scheme(val):
@@ -221,9 +277,14 @@ def to_scheme(val):
 def eval_expr(elem, env=global_env):
     local_env = Env()
     local_env.parent = env
-    print elem
     # Any element that is a string should be in the environment
     if isinstance(elem, str) and not (elem.startswith('"') and elem.endswith('"')):
+        if elem == 'lenv':
+            pprint.pprint(local_env.env)
+            return None
+        elif elem == 'genv':
+            pprint.pprint(global_env.env)
+            return None
         return local_env.find(elem)
     # Literals are anything that isn't a list or string
     elif not isinstance(elem, list):
@@ -237,26 +298,48 @@ def eval_expr(elem, env=global_env):
     elif elem[0] == 'quote': # '(v1...) or (quote (v1...))
         return elem[1:]
     # Define
-    elif elem[0] == 'define': #(define name expr) or (define (name params) expr)
+    elif elem[0] == 'define': # (define name expr) or (define (name params) expr)
         (func, name, expr) = elem
         bind = Binding(name, expr, local_env)
         global_env[bind.name] = bind.eval()
+        return None
     # Lambda
-    elif elem[0] == 'lambda': #(lambda (params) (expr))
+    elif elem[0] == 'lambda': # (lambda (params) (expr))
         (func, name, expr) = elem
         name.insert(0, None) # A lambda function has no name, only params
         bind = Binding(name, expr, local_env)
         return bind.eval()
+    # Let
+    elif elem[0] == 'let': # (let ((a expr_a) (b expr_b)) expr)
+        (func, bindings, expr) = elem
+        # In let, we first create each binding, then we add to the local_env
+        # The bindings are not added as they are made
+        # A binding for let consists of a list of length 2
+        local_binds = dict()
+        for b in bindings:
+            (b_name, b_expr) = b
+            local_binds[b_name] = Binding(b_name, b_expr, local_env).eval()
+        local_env.update(local_binds)
+        return eval_expr(expr, local_env)
+    # Let*
+    # Bindings are immediately added to the current local environment
+    # As they are created. This makes them available to subsequent bindings
+    elif elem[0] == 'let*':
+        (func, bindings, expr) = elem
+        for b in bindings:
+            (b_name, b_expr) = b
+            local_env[b_name] = Binding(b_name, b_expr, local_env).eval()
+        return eval_expr(expr, local_env)
     # Otherwise it's in env, and we can evaluate it
     else:
         func = eval_expr(elem[0], local_env)
         body = [eval_expr(e, local_env) for e in elem[1:]]
-        return func(body)
+        return func(*body)
 
 
 # Read, eval, print
 def rep(text):
-    tokens = tokenize(text)
+    tokens = _tokenize(text)
     expr = parse(tokens)
     ret = eval_expr(expr)
     if ret != None:
@@ -268,7 +351,8 @@ def repl():
         text = raw_input('pyscheme>')
         if text == '(exit)':
             break
-        rep(text)
+        if text:
+            rep(text)
 
 # Main line
 if __name__ == '__main__':
