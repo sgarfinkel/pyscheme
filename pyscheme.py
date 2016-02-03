@@ -8,29 +8,29 @@ import pprint
 # Along with the dictionary of classes
 # All scheme functions expect parameters as a list
 # And parse each one accordingly
-def scheme_display(params):
-    print params.lstrip('"').rstrip('"')
+def scheme_display(*args):
+    print args[0].lstrip('"').rstrip('"')
     return None
 
 # Basic math
-def scheme_add(params):
-    return sum(params)
+def scheme_add(*args):
+    return sum(args)
 
-def scheme_subtract(params):
-    return params[0] - sum(params[1:])
+def scheme_subtract(*args):
+    return args[0] - sum(args[1:])
 
-def scheme_mult(params):
-    return reduce(lambda x, y: x*y, params)
+def scheme_mult(*args):
+    return reduce(lambda x, y: x*y, args)
 
-def scheme_div(params):
-    v = reduce(lambda x, y: float(x)/y, params)
+def scheme_div(*args):
+    v = reduce(lambda x, y: float(x)/y, args)
     if v.is_integer():
         return int(v)
     return v
 
 # Comparators
-def scheme_eq(params):
-    return len(set(params)) == 1
+def scheme_eq(*args):
+    return len(set(args)) == 1
 
 def scheme_lt(params):
     return all([x[i] < x[i+1] for i, x in enumerate(params[1:])])
