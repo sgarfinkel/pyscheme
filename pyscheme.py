@@ -123,7 +123,7 @@ class Binding:
         if self.params:
             return self._eval
         else:
-            return self.expr
+            return eval_expr(self.expr, self.env)
 
 
 def _tokenize(text):
