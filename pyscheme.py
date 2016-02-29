@@ -1,4 +1,4 @@
-from sys import argv
+from sys import argv, stdout, stdin
 import operator
 import math
 import readline
@@ -8,9 +8,27 @@ import pprint
 # Along with the dictionary of classes
 # All scheme functions expect parameters as a list
 # And parse each one accordingly
-def scheme_display(*args):
-    print args[0].lstrip('"').rstrip('"')
+# I/O
+def scheme_display(str, f=stdout, *args):
+    f.write(str.strip('"')+'\n')
     return None
+
+def scheme_open_output_file(fname, *args):
+    return open(fname.strip('"'), 'w')
+
+def scheme_close_output_port(f, *args):
+    close(f)
+    return None
+
+def scheme_open_input_file(fname, *args):
+    return open(fname.strip('"'), 'r')
+
+def scheme_close_input_port(f, *args):
+    close(f)
+    return None
+
+def scheme_read_line(f, *args):
+    return '"' + f.readline() + '"'
 
 # Basic math
 def scheme_add(*args):
@@ -76,6 +94,11 @@ class Env:
 def std_env():
     env = Env()
     env.env = { 'display'   : scheme_display,
+		'open-output-file'	: scheme_open_output_file,
+        'close-output-port'	: scheme_close_output_port,
+        'open-input-file'	: scheme_open_input_file,
+        'close-input-port'	: scheme_close_input_port,
+                'read-line' : scheme_read_line,
                 '+'         : scheme_add,
                 '-'         : scheme_subtract,
                 '*'         : scheme_mult,
