@@ -3,7 +3,7 @@ import operator
 import math
 import readline
 import pprint
-from socket import socket, getaddrinfo
+from socket import socket, getaddrinfo, AF_INET, SOCK_STREAM
 
 # This will go in a separate module eventually
 # Along with the dictionary of classes
@@ -15,22 +15,25 @@ def scheme_display(str, f=stdout, *args):
     f.write(str.strip('"')+'\n')
     return None
 
-def scheme_open_output_file(fname, *args):
+def scheme_open_output_file(fname):
     return open(fname.strip('"'), 'w')
 
-def scheme_close_output_port(f, *args):
+def scheme_close_output_port(f):
     close(f)
     return None
 
-def scheme_open_input_file(fname, *args):
+def scheme_open_input_file(fname):
     return open(fname.strip('"'), 'r')
 
-def scheme_close_input_port(f, *args):
+def scheme_close_input_port(f):
     close(f)
     return None
 
-def scheme_read_line(f, *args):
+def scheme_read_line(f):
     return '"' + f.readline() + '"'
+
+def scheme_read(f):
+    return '"' + f.read() + '"'
 
 # Basic math
 def scheme_add(*args):
@@ -48,63 +51,84 @@ def scheme_div(*args):
         return int(v)
     return v
 
+# Comparators
+def scheme_eq(*args):
+    return len(set(args)) == 1
+
+def scheme_lt(*args):
+    return all([x[i] < x[i+1] for i, x in enumerate(args[1:])])
+
+def scheme_gt(*args):
+    return all([x[i] > x[i+1] for i, x in enumerate(args[1:])])
+
+def scheme_lte(*args):
+    return not scheme_gt(args)
+
+def scheme_gte(*args):
+    return not scheme_lt(args)
+
+# Logical operators
+def scheme_and(*args):
+    return all(args)
+
+def scheme_or(*args):
+    return any(args)
+
+def scheme_not(arg):
+    return not arg
+
 # Sockets
-def scheme_socket_create(*args):
-    '''Create a socket object. Args: ['IP', Port]. IP must be a string.'''
-    host = args[0].strip('"')
-    port = args[1]
-    (family, socktype, proto, canonname, sockaddr) = getaddrinfo(host, port)[0]
-    print sockaddr
-    sock = socket(family, socktype, proto)
-    sock.bind((sockaddr))
+def scheme_socket_create(host, port):
+    '''Create a socket object. Only supports IPV4.'''
+    host = host.strip('"')
+    sock = socket(AF_INET, SOCK_STREAM)
+    sock.bind((host, port))
     return sock
 
-def scheme_socket_close(*args):
-    '''Closes a socket object. Args: [socket_object]'''
-    args[0].close()
+def scheme_socket_close(sock):
+    '''Closes a socket object.'''
+    sock.close()
     return None
 
-def scheme_socket_readline(*args):
-    '''Listens for a newline terminated string on the socket object and returns it.
-    Args: [socket_object].'''
-    chunks = list()
-    sock = args[0]
-    sock.listen(1) # Listen for only one queued connection
-    print sock.getsockname()
+def scheme_socket_accept(sock):
+    '''Listens for a socket connection. Returns a socket object for the connection after accepting.'''
+    sock.listen(1)
     (conn, addr) = sock.accept()
+    return conn
+
+def scheme_socket_readline(conn):
+    '''Listens for a newline terminated string on the connection object and returns it. Strips the terminating newline.'''
+    chunks = list()
     while True:
         chunk = conn.recv(4096)
         chunks.append(chunk)
         if chunk.endswith('\n'):
             break
+    return ''.join(chunks).rstrip('\n')
+
+def scheme_socket_read(conn, num_bytes):
+    '''Reads b bytes from socket object conn. Returns the bytes as a string.'''
+    chunks = list()
+    while True:
+        chunks.append(conn.recv(1))
+        if len(chunks) == num_bytes:
+            break
     return ''.join(chunks)
 
+def scheme_socket_write(conn, s):
+    '''Writes argument s to the conn socket object.'''
+    conn.sendall(string.strip('"'))
+    return None
 
-# Comparators
-def scheme_eq(*args):
-    return len(set(args)) == 1
+# String manipulation
+def scheme_string_to_number(s):
+    return int(s)
 
-def scheme_lt(params):
-    return all([x[i] < x[i+1] for i, x in enumerate(params[1:])])
+def scheme_string_to_list(s):
+    return list(s)
 
-def scheme_gt(params):
-    return all([x[i] > x[i+1] for i, x in enumerate(params[1:])])
-
-def scheme_lte(params):
-    return not scheme_gt(params)
-
-def scheme_gte(params):
-    return not scheme_lt(params)
-
-# Logical operators
-def scheme_and(params):
-    return all(params)
-
-def scheme_or(params):
-    return any(params)
-
-def scheme_not(params):
-    return not params[0]
+def scheme_list_to_string(l):
+    return ''.join(s)
 
 # Environment
 class Env:
@@ -128,11 +152,12 @@ class Env:
 def std_env():
     env = Env()
     env.env = { 'display'           : scheme_display,
-		        'open-output-file'  : scheme_open_output_file,
+                'open-output-file'  : scheme_open_output_file,
                 'close-output-port' : scheme_close_output_port,
                 'open-input-file'   : scheme_open_input_file,
                 'close-input-port'  : scheme_close_input_port,
                 'read-line'         : scheme_read_line,
+                'read'              : scheme_read,
                 '+'                 : scheme_add,
                 '-'                 : scheme_subtract,
                 '*'                 : scheme_mult,
@@ -142,12 +167,17 @@ def std_env():
                 '>'                 : scheme_gt,
                 '<='                : scheme_lte,
                 '>='                : scheme_gte,
-                'and'               : all,
-                'or'                : any,
+                'and'               : scheme_and,
+                'or'                : scheme_or,
                 'not'               : scheme_not,
-                'socket_create'     : scheme_socket_create,
-                'socket_readline'   : scheme_socket_readline,
-                'socket_close'      : scheme_socket_close
+                'socket-create'     : scheme_socket_create,
+                'socket-close'      : scheme_socket_close,
+                'socket-accept'     : scheme_socket_accept,
+                'socket-readline'   : scheme_socket_readline,
+                'socket-read'       : scheme_socket_read,
+                'socket-write'      : scheme_socket_write,
+                'string->number'    : scheme_string_to_number,
+
             }
     env.update(vars(math))
     return env
@@ -412,7 +442,12 @@ def repl():
         if text == '(exit)':
             break
         if text:
-            rep(text)
+            # We don't implement our own error handling
+            # But we don't want exceptions to kill the repl
+            try:
+                rep(text)
+            except Exception as e:
+                print e
 
 # Main line
 if __name__ == '__main__':
