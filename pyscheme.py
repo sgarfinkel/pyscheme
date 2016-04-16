@@ -3,11 +3,13 @@ import operator
 import math
 import readline
 import pprint
+from socket import socket, getaddrinfo
 
 # This will go in a separate module eventually
 # Along with the dictionary of classes
 # All scheme functions expect parameters as a list
 # And parse each one accordingly
+
 # I/O
 def scheme_display(str, f=stdout, *args):
     f.write(str.strip('"')+'\n')
@@ -45,6 +47,38 @@ def scheme_div(*args):
     if v.is_integer():
         return int(v)
     return v
+
+# Sockets
+def scheme_socket_create(*args):
+    '''Create a socket object. Args: ['IP', Port]. IP must be a string.'''
+    host = args[0].strip('"')
+    port = args[1]
+    (family, socktype, proto, canonname, sockaddr) = getaddrinfo(host, port)[0]
+    print sockaddr
+    sock = socket(family, socktype, proto)
+    sock.bind((sockaddr))
+    return sock
+
+def scheme_socket_close(*args):
+    '''Closes a socket object. Args: [socket_object]'''
+    args[0].close()
+    return None
+
+def scheme_socket_readline(*args):
+    '''Listens for a newline terminated string on the socket object and returns it.
+    Args: [socket_object].'''
+    chunks = list()
+    sock = args[0]
+    sock.listen(1) # Listen for only one queued connection
+    print sock.getsockname()
+    (conn, addr) = sock.accept()
+    while True:
+        chunk = conn.recv(4096)
+        chunks.append(chunk)
+        if chunk.endswith('\n'):
+            break
+    return ''.join(chunks)
+
 
 # Comparators
 def scheme_eq(*args):
@@ -93,24 +127,27 @@ class Env:
 
 def std_env():
     env = Env()
-    env.env = { 'display'   : scheme_display,
-		'open-output-file'	: scheme_open_output_file,
-        'close-output-port'	: scheme_close_output_port,
-        'open-input-file'	: scheme_open_input_file,
-        'close-input-port'	: scheme_close_input_port,
-                'read-line' : scheme_read_line,
-                '+'         : scheme_add,
-                '-'         : scheme_subtract,
-                '*'         : scheme_mult,
-                '/'         : scheme_div,
-                '='         : scheme_eq,
-                '<'         : scheme_lt,
-                '>'         : scheme_gt,
-                '<='        : scheme_lte,
-                '>='        : scheme_gte,
-                'and'       : all,
-                'or'        : any,
-                'not'       : scheme_not,
+    env.env = { 'display'           : scheme_display,
+		        'open-output-file'  : scheme_open_output_file,
+                'close-output-port' : scheme_close_output_port,
+                'open-input-file'   : scheme_open_input_file,
+                'close-input-port'  : scheme_close_input_port,
+                'read-line'         : scheme_read_line,
+                '+'                 : scheme_add,
+                '-'                 : scheme_subtract,
+                '*'                 : scheme_mult,
+                '/'                 : scheme_div,
+                '='                 : scheme_eq,
+                '<'                 : scheme_lt,
+                '>'                 : scheme_gt,
+                '<='                : scheme_lte,
+                '>='                : scheme_gte,
+                'and'               : all,
+                'or'                : any,
+                'not'               : scheme_not,
+                'socket_create'     : scheme_socket_create,
+                'socket_readline'   : scheme_socket_readline,
+                'socket_close'      : scheme_socket_close
             }
     env.update(vars(math))
     return env
