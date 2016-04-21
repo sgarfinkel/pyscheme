@@ -2,9 +2,7 @@ from sys import argv, stdout, stdin
 import operator
 import math
 import readline
-import pprint
-from traceback import print_exc
-from socket import socket, getaddrinfo, AF_INET, SOCK_STREAM
+from socket import socket, AF_INET, SOCK_STREAM
 import threading
 from time import sleep
 
