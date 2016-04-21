@@ -1,1 +1,18 @@
-(let ((a 2) (b 3)) (+ a b))
+(begin
+	(define (isEmpty l) (= 0 (length l)))
+	(define
+		(printList lst)
+		(if (isEmpty lst)
+			(void)
+			(let
+				((f (car lst)) (t (cdr lst)))
+				(begin
+					(display (number->string f))
+					(printList t)
+				)
+			)
+		)
+	)
+	(define (addOne l) (map (lambda (x) (+ 1 x)) l))
+	(let loop ((i 1)) (display i) (thread-sleep 1) (if (< i 10) (loop (+ i 1)) (void)))
+)

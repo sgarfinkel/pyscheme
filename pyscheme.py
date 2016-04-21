@@ -3,16 +3,14 @@ import operator
 import math
 import readline
 import pprint
+from traceback import print_exc
 from socket import socket, getaddrinfo, AF_INET, SOCK_STREAM
-
-# This will go in a separate module eventually
-# Along with the dictionary of classes
-# All scheme functions expect parameters as a list
-# And parse each one accordingly
+import threading
+from time import sleep
 
 # I/O
-def scheme_display(str, f=stdout, *args):
-    f.write(str.strip('"')+'\n')
+def scheme_display(s, f=stdout, *args):
+    f.write(str(s).strip('"')+'\n')
     return None
 
 def scheme_open_output_file(fname):
@@ -56,10 +54,10 @@ def scheme_eq(*args):
     return len(set(args)) == 1
 
 def scheme_lt(*args):
-    return all([x[i] < x[i+1] for i, x in enumerate(args[1:])])
+    return all([args[i] < args[i+1] for i, x in enumerate(args[:1])])
 
 def scheme_gt(*args):
-    return all([x[i] > x[i+1] for i, x in enumerate(args[1:])])
+    return all([args[i] > args[i+1] for i, x in enumerate(args[:1])])
 
 def scheme_lte(*args):
     return not scheme_gt(args)
@@ -124,11 +122,98 @@ def scheme_socket_write(conn, s):
 def scheme_string_to_number(s):
     return int(s)
 
+def scheme_number_to_string(n):
+    return str(n)
+
 def scheme_string_to_list(s):
     return list(s)
 
 def scheme_list_to_string(l):
     return ''.join(s)
+
+def scheme_substring(s, start, end):
+    return s[start:end]
+
+def scheme_string_length(s):
+    return len(s)
+
+def scheme_string_append(*args):
+    return ''.join(args)
+
+def scheme_string_join(strs, sep):
+    '''Joins each string in the strs list together with the separator.
+    Returns a string consisting of the concatenation of the new list.'''
+    return sep.join(strs)
+
+# List manipulation
+def scheme_list(*args):
+    return args
+
+def scheme_length(l):
+    return len(l)
+
+def scheme_car(l):
+    '''Returns the first element of the list. Error if l is empty.'''
+    return l[0]
+
+def scheme_cdr(l):
+    '''Returns the sublist obtained by removing the first element.'''
+    return l[1:]
+
+def scheme_append(*args):
+    l = list()
+    for a in args:
+        if isinstance(a, list):
+            l.extend(a)
+        else:
+            l.append(a)
+    return l
+
+# List iteration operators
+def scheme_map(func, vals):
+    '''Applies function func to each element of vals and returns a new list consisting of the
+    output of each execution of procedure proc.'''
+    return [func(v) for v in vals]
+
+def scheme_for_each(func, vals):
+    '''Applies function func to each elementent of val. The return values of func are ignored.'''
+    for v in vals:
+        func(v)
+    return None
+
+# Threads
+def scheme_thread_create(expr):
+    '''Creates a new thread (but does not execute it)
+    with the given expression. Returns the thread object.'''
+    t = threading.Thread(target=expr)
+    t.start()
+    return t
+
+def scheme_thread_run(t):
+    '''Executes the function associated with the thread object t.'''
+    t.run()
+    return None
+
+def scheme_thread_join(t):
+    '''Blocks the caller until the callee thread terminates.'''
+    t.join()
+    return None
+
+def scheme_thread_sleep(dur):
+    '''Sleeps this thread for the given duration dur.'''
+    sleep(dur)
+    return None
+
+def scheme_lock_create():
+    return threading.Lock()
+
+def scheme_lock_acquire(lock):
+    lock.acquire()
+    return None
+
+def scheme_lock_release(lock):
+    lock.release()
+    return None
 
 # Environment
 class Env:
@@ -146,12 +231,16 @@ class Env:
     # Containing the binding we are looking for
     def find(self, name):
         if not name in self.env:
-            return self.parent.find(name)
+            if self.parent:
+                return self.parent.find(name)
+            print 'Unbound function or variable: {0}'.format(name)
+            return None
         return self.env[name]
 
 def std_env():
     env = Env()
-    env.env = { 'display'           : scheme_display,
+    env.env = { 'void'              : lambda *args: None,
+                'display'           : scheme_display,
                 'open-output-file'  : scheme_open_output_file,
                 'close-output-port' : scheme_close_output_port,
                 'open-input-file'   : scheme_open_input_file,
@@ -177,7 +266,27 @@ def std_env():
                 'socket-read'       : scheme_socket_read,
                 'socket-write'      : scheme_socket_write,
                 'string->number'    : scheme_string_to_number,
-
+                'number->string'    : scheme_number_to_string,
+                'string->list'      : scheme_string_to_list,
+                'list->string'      : scheme_list_to_string,
+                'substring'         : scheme_substring,
+                'string-length'     : scheme_string_length,
+                'string-append'     : scheme_string_append,
+                'string-join'       : scheme_string_join,
+                'list'              : scheme_list,
+                'length'            : scheme_length,
+                'car'               : scheme_car,
+                'cdr'               : scheme_cdr,
+                'append'            : scheme_append,
+                'map'               : scheme_map,
+                'for-each'          : scheme_for_each,
+                'thread-create'     : scheme_thread_create,
+                'thread-run'        : scheme_thread_run,
+                'thread-join'       : scheme_thread_join,
+                'thread-sleep'      : scheme_thread_sleep,
+                'lock-create'       : scheme_lock_create,
+                'lock-acquire'      : scheme_lock_acquire,
+                'lock-release'      : scheme_lock_release,
             }
     env.update(vars(math))
     return env
@@ -199,16 +308,11 @@ class Binding:
     def __repr__(self):
         return 'name='+str(self.name)+';params='+str(self.params)+';expr='+str(self.expr)
 
-    # Private eval method, only visible if the binding is a function
-    def _eval(self, params=None):
-        for k, v in zip(self.params, params):
+    def _eval(self, *args):
+        for k, v in zip(self.params, args):
             self.env[k] = v
         return eval_expr(self.expr, self.env)
 
-    # Helper method--we don't hold onto the reference to the instance of the binding
-    # Only the method to evaluate, so we can't do type checking of the expression
-    # Instead, we use duck typing here to add the binding to the environment as a literal
-    # Or as an Python function
     def eval(self):
         if self.params:
             return self._eval
@@ -216,7 +320,7 @@ class Binding:
             return eval_expr(self.expr, self.env)
 
 
-def _tokenize(text):
+def tokenize(text):
     tokens = list()
     token = list()
     in_str = False
@@ -246,77 +350,14 @@ def _tokenize(text):
         elif char == '\'' or char == '`':
             quote = not quote
             tokens.extend(['(', 'quote'])
-        elif not char == ' ':
+        elif not char in [' ', '\n', '\r', '\t']:
             token.append(char)
         else:
             if len(token):
                 tokens.append(''.join(token))
                 token = list()
-
     if token:
         tokens.append(''.join(token))
-    return tokens
-
-
-# Parser
-def tokenize(text):
-    tokens = list()
-    cur_token = list()
-    in_string = False
-    q_count = 0
-    quote = False
-    for char in text:
-        # Handle whitespace
-        if (char == ' ' or char == '\n' or char == '\r') and not in_string:
-            # Only append if we have symbols to add
-            # Catches instances of leading whitespace
-            if len(cur_token):
-                tokens.append(''.join(cur_token))
-                # And clear the cur_token
-                cur_token = list()
-            # Regardless, continue
-            continue
-        # Handle parentheses, special case that may not have whitespace
-        # Other than white space, only other time to add new token
-        if char == '(' or char == ')':
-            # If we already have tokens to add, add them first
-            if len(cur_token):
-                tokens.append(''.join(cur_token))
-                # And clear the cur_token
-                cur_token = list()
-            tokens.append(char)
-            # Handle quote symbol, special case
-            if char == '(' and quote:
-                q_count += 1
-            elif char == ')' and quote:
-                q_count -= 1
-            if q_count == 0 and quote:
-                quote = not quote
-                tokens.append(')')
-            continue
-        # To make parsing easier, convert quote symbols
-        # Into their functional form
-        if char == '\'' or char == '`':
-            tokens.extend(['(', 'quote'])
-            quote = True
-            continue
-        # All other cases, append char
-        cur_token.append(char)
-        # A quotation mark starts or ends a string
-        # If it ends a string, just append and start a new token
-        # May help with catching errors down the road
-        if char == '"':
-            if in_string:
-                tokens.append(''.join(cur_token))
-                cur_token = list()
-            in_string = not in_string
-
-    # When we're done, if we have a cur_token, append
-    # This is mainly for repl if you call a literal on its own
-    if cur_token:
-        tokens.append(''.join(cur_token))
-
-    # Return our tokens
     return tokens
 
 # This recursively parses our tokens
@@ -369,12 +410,6 @@ def eval_expr(elem, env=global_env):
     local_env.parent = env
     # Any element that is a string should be in the environment
     if isinstance(elem, str) and not (elem.startswith('"') and elem.endswith('"')):
-        if elem == 'lenv':
-            pprint.pprint(local_env.env)
-            return None
-        elif elem == 'genv':
-            pprint.pprint(global_env.env)
-            return None
         return local_env.find(elem)
     # Literals are anything that isn't a list or string
     elif not isinstance(elem, list):
@@ -386,7 +421,7 @@ def eval_expr(elem, env=global_env):
         return eval_expr(ret, local_env)
     # Any list is a function, unless it's a literal list
     elif elem[0] == 'quote': # '(v1...) or (quote (v1...))
-        return elem[1:]
+        return elem[1]
     # Define
     elif elem[0] == 'define': # (define name expr) or (define (name params) expr)
         (func, name, expr) = elem
@@ -400,17 +435,35 @@ def eval_expr(elem, env=global_env):
         bind = Binding(name, expr, local_env)
         return bind.eval()
     # Let
-    elif elem[0] == 'let': # (let ((a expr_a) (b expr_b)) expr)
-        (func, bindings, expr) = elem
+    elif elem[0] == 'let': # (let ((a expr_a) (b expr_b)) bodys...) or (let func (id expr...) (bodys...))
+        func_name = list()
+        if isinstance(elem[1], list):
+            bindings = elem[1]
+            bodys = elem[2:]
+        else:
+            func_name.append(elem[1])
+            bindings = elem[2]
+            bodys = elem[3:]
         # In let, we first create each binding, then we add to the local_env
         # The bindings are not added as they are made
         # A binding for let consists of a list of length 2
         local_binds = dict()
         for b in bindings:
             (b_name, b_expr) = b
+            # If we are binding a new function, we need to store the names of the bindings to act as parameters
+            if func_name:
+                func_name.append(b_name)
             local_binds[b_name] = Binding(b_name, b_expr, local_env).eval()
         local_env.update(local_binds)
-        return eval_expr(expr, local_env)
+        # Now bind the function if necessary to the list of bodys
+        # Expression is of type begin, as that supports execution of a list of expressions
+        if func_name:
+            expr = ['begin']
+            [expr.append(e) for e in bodys]
+            b = Binding(func_name, expr, local_env)
+            local_env[b.name] = b.eval()
+        # Return from the last expression in the set of bodys
+        return [eval_expr(e, local_env) for e in bodys][-1]
     # Let*
     # Bindings are immediately added to the current local environment
     # As they are created. This makes them available to subsequent bindings
@@ -420,16 +473,23 @@ def eval_expr(elem, env=global_env):
             (b_name, b_expr) = b
             local_env[b_name] = Binding(b_name, b_expr, local_env).eval()
         return eval_expr(expr, local_env)
+    # Begin
+    # Sequentially executes each function
+    # Returns the output of the last function
+    elif elem[0] == 'begin':
+        out = None
+        for expr in elem[1:]:
+            out = eval_expr(expr, local_env)
+        return out
     # Otherwise it's in env, and we can evaluate it
     else:
         func = eval_expr(elem[0], local_env)
         body = [eval_expr(e, local_env) for e in elem[1:]]
         return func(*body)
 
-
 # Read, eval, print
 def rep(text):
-    tokens = _tokenize(text)
+    tokens = tokenize(text)
     expr = parse(tokens)
     ret = eval_expr(expr)
     if ret != None:
@@ -441,13 +501,13 @@ def repl():
         text = raw_input('pyscheme>')
         if text == '(exit)':
             break
-        if text:
+        else:
             # We don't implement our own error handling
             # But we don't want exceptions to kill the repl
             try:
                 rep(text)
-            except Exception as e:
-                print e
+            except Exception:
+                pass
 
 # Main line
 if __name__ == '__main__':
@@ -455,5 +515,4 @@ if __name__ == '__main__':
         # Open as a file
         with open(argv[1]) as f:
             rep(f.read())
-    else:
-        repl()
+    repl()
