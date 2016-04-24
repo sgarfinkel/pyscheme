@@ -21,7 +21,7 @@ def macro(func):
 
 @macro
 def scheme_define(args, env):
-    '''Define macro. Adds a new binding to the global environment.'''
+    """Define macro. Adds a new binding to the global environment."""
     first = args[0]
     # If the first argument is a list
     # Then we're binding a new function
@@ -186,25 +186,25 @@ def scheme_not(arg):
 
 # Sockets
 def scheme_socket_create(host, port):
-    '''Create a socket object. Only supports IPV4.'''
+    """Create a socket object. Only supports IPV4."""
     host = host.strip('"')
     sock = socket(AF_INET, SOCK_STREAM)
     sock.bind((host, port))
     return sock
 
 def scheme_socket_close(sock):
-    '''Closes a socket object.'''
+    """Closes a socket object."""
     sock.close()
     return None
 
 def scheme_socket_accept(sock):
-    '''Listens for a socket connection. Returns a socket object for the connection after accepting.'''
+    """Listens for a socket connection. Returns a socket object for the connection after accepting."""
     sock.listen(1)
     (conn, addr) = sock.accept()
     return conn
 
 def scheme_socket_readline(conn):
-    '''Listens for a newline terminated string on the connection object and returns it. Strips the terminating newline.'''
+    """Listens for a newline terminated string on the connection object and returns it. Strips the terminating newline."""
     chunks = list()
     while True:
         chunk = conn.recv(4096)
@@ -214,7 +214,7 @@ def scheme_socket_readline(conn):
     return ''.join(chunks).rstrip('\n')
 
 def scheme_socket_read(conn, num_bytes):
-    '''Reads num_bytes bytes from socket object conn. Returns the bytes as a string.'''
+    """Reads num_bytes bytes from socket object conn. Returns the bytes as a string."""
     chunks = list()
     while True:
         chunks.append(conn.recv(1))
@@ -223,7 +223,7 @@ def scheme_socket_read(conn, num_bytes):
     return ''.join(chunks)
 
 def scheme_socket_write(conn, s):
-    '''Writes argument s to the conn socket object.'''
+    """Writes argument s to the conn socket object."""
     conn.sendall(string.strip('"'))
     return None
 
@@ -250,8 +250,8 @@ def scheme_string_append(*args):
     return ''.join(args)
 
 def scheme_string_join(strs, sep):
-    '''Joins each string in the strs list together with the separator.
-    Returns a string consisting of the concatenation of the new list.'''
+    """Joins each string in the strs list together with the separator.
+    Returns a string consisting of the concatenation of the new list."""
     return sep.join(strs)
 
 # List manipulation
@@ -262,11 +262,11 @@ def scheme_length(l):
     return len(l)
 
 def scheme_car(l):
-    '''Returns the first element of the list. Error if l is empty.'''
+    """Returns the first element of the list. Error if l is empty."""
     return l[0]
 
 def scheme_cdr(l):
-    '''Returns the sublist obtained by removing the first element.'''
+    """Returns the sublist obtained by removing the first element."""
     return l[1:]
 
 def scheme_append(*args):
@@ -280,36 +280,36 @@ def scheme_append(*args):
 
 # List iteration operators
 def scheme_map(func, vals):
-    '''Applies function func to each element of vals and returns a new list consisting of the
-    output of each execution of procedure proc.'''
+    """Applies function func to each element of vals and returns a new list consisting of the
+    output of each execution of procedure proc."""
     return [func(v) for v in vals]
 
 def scheme_for_each(func, vals):
-    '''Applies function func to each elementent of val. The return values of func are ignored.'''
+    """Applies function func to each elementent of val. The return values of func are ignored."""
     for v in vals:
         func(v)
     return None
 
 # Threads
 def scheme_thread_create(expr):
-    '''Creates a new thread (but does not execute it)
-    with the given expression. Returns the thread object.'''
+    """Creates a new thread (but does not execute it)
+    with the given expression. Returns the thread object."""
     t = threading.Thread(target=expr)
     t.start()
     return t
 
 def scheme_thread_run(t):
-    '''Executes the function associated with the thread object t.'''
+    """Executes the function associated with the thread object t."""
     t.run()
     return None
 
 def scheme_thread_join(t):
-    '''Blocks the caller until the callee thread terminates.'''
+    """Blocks the caller until the callee thread terminates."""
     t.join()
     return None
 
 def scheme_thread_sleep(dur):
-    '''Sleeps this thread for the given duration dur.'''
+    """Sleeps this thread for the given duration dur."""
     sleep(dur)
     return None
 
@@ -410,32 +410,6 @@ def std_env():
     return env
 
 global_env = std_env()
-
-# Binding
-class Binding:
-    def __init__(self, name=None, expr=None, env=None):
-        if isinstance(name, list):
-            self.name = name[0]
-            self.params = name[1:]
-        else:
-            self.name = name
-            self.params = None
-        self.expr = expr
-        self.env = env
-
-    def __repr__(self):
-        return 'name='+str(self.name)+';params='+str(self.params)+';expr='+str(self.expr)
-
-    def _eval(self, *args):
-        for k, v in zip(self.params, args):
-            self.env[k] = v
-        return eval_expr(self.expr, self.env)
-
-    def eval(self):
-        if self.params:
-            return self._eval
-        else:
-            return eval_expr(self.expr, self.env)
 
 def tokenize(text):
     tokens = list()
