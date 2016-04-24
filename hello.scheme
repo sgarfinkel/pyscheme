@@ -14,5 +14,5 @@
 		)
 	)
 	(define (addOne l) (map (lambda (x) (+ 1 x)) l))
-	(let loop ((i 1)) (display i) (thread-sleep 1) (if (< i 10) (loop (+ i 1)) (void)))
+	(let loop ((i 1)) (display i) (thread-sleep 0.1) (if (< i 100) (loop (+ i 1)) (void)))
 )
