@@ -1,4 +1,5 @@
-from sys import argv, stdout, stdin
+import argparse
+from sys import stdout, stdin
 import operator
 import math
 import readline
@@ -509,8 +510,15 @@ def repl():
 
 # Main line
 if __name__ == '__main__':
-    if len(argv) == 2:
-        # Open as a file
-        with open(argv[1]) as f:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', action='store_true', dest='import_env',
+        help='executes the file from the -f flag then starts an interactive shell with the old environment')
+    parser.add_argument('-f', default=None, help='executes the given scheme file', metavar='filename')
+    args = parser.parse_args()
+    if args.f:
+        with open(args.f) as f:
             rep(f.read())
-    repl()
+        if args.import_env:
+            repl()
+    else:
+        repl()
