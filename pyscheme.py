@@ -5,10 +5,120 @@ import readline
 from socket import socket, AF_INET, SOCK_STREAM
 import threading
 from time import sleep
+from traceback import print_exc
+from functools import wraps
+from pprint import pprint
+
+# Decorator that sets an attribute to
+# Distinguish macros from functions
+def macro(func):
+    @wraps(func)
+    def wrapper(*args):
+        return func(*args)
+    wrapper.macro = True
+    return wrapper
+
+@macro
+def scheme_define(args, env):
+    '''Define macro. Adds a new binding to the global environment.'''
+    first = args[0]
+    # If the first argument is a list
+    # Then we're binding a new function
+    if isinstance(first, list):
+        def inner(*params):
+            for k,v in zip(first[1:], params):
+                # Evaluate each input param
+                # With the bound environment
+                # Of the closure, and add these
+                # Params to the closure's environment
+                env[k] = v
+            # Then this function should evaluate the body(s) and return the last
+            return [eval_expr(a, env) for a in args[1:]][-1]
+        # Now add this function bound with its name in the global_env
+        env.root[first[0]] = inner
+    # Else literal binding
+    # Bind the name to the evaluation
+    # Of the body--body is evaluated at creation
+    # Given the environment of the closure
+    else:
+        env.root[first] = eval_expr(args[1], env)
+    return None
+
+@macro
+def scheme_if(args, env):
+    # Unpack the args
+    (cond, conseq, alt) = args[:3]
+    if eval_expr(cond, env):
+        return eval_expr(conseq, env)
+    else:
+        return eval_expr(alt, env)
+
+@macro
+def scheme_quote(args, env):
+    # Return the args[0] unevaluated
+    return args[0]
+
+@macro
+def scheme_lambda(args, env):
+    def inner(*params):
+        for k,v in zip(args[0], params):
+            # Evaluate each input param
+            # With the bound environment
+            # Of the closure, and add these
+            # Params to the closure's environment
+            env[k] = v
+        # Then this function should evaluate the body(s) and return the last
+        return [eval_expr(b, env) for b in args[1:]][-1]
+    # Return the inner function
+    return inner
+
+@macro
+def scheme_let(args, env):
+    # If the first is the proc-id
+    if not isinstance(args[0], list):
+        e = [args[0]]
+        e.extend([a[1] for a in args[1]])
+        # Create a new "lambda" function
+        # With the ids bound as parameter names
+        # We only update the env once all bindings are eval'd
+        def inner(*params):
+            vals = dict()
+            for k,v in zip([a[0] for a in args[1]], params):
+                vals[k] = v
+            # Now update the environment with the bindings
+            env.update(vals)
+            # Then evaluate the bodys
+            return [eval_expr(b, env) for b in args[2:]][-1]
+        # Bind inner
+        env[args[0]] = inner
+
+        # Execute the call 'e'
+        return eval_expr(e, env)
+
+    else:
+        # Add all vals to a local dictionary
+        # Then evaluate the bodys given the env
+        vals = dict()
+        for k,v in args[0]:
+            vals[k] = eval_expr(v, env)
+        # Update the env
+        env.update(vals)
+        return [eval_expr(b, env) for b in args[1:]][-1]
+
+@macro
+def scheme_let_star(args, env):
+    for k,v in args[0]:
+        env[k] = eval_expr(v, env)
+    # Update the env
+    return [eval_expr(b, env) for b in args[1:]][-1]
+
+@macro
+def scheme_begin(args, env):
+    return [eval_expr(b, env) for b in args][-1]
 
 # I/O
-def scheme_display(s, f=stdout, *args):
-    f.write(str(s).strip('"')+'\n')
+def scheme_display(s, f=stdout):
+    f.write(str(to_scheme(s)).strip('"')+'\n')
     return None
 
 def scheme_open_output_file(fname):
@@ -103,7 +213,7 @@ def scheme_socket_readline(conn):
     return ''.join(chunks).rstrip('\n')
 
 def scheme_socket_read(conn, num_bytes):
-    '''Reads b bytes from socket object conn. Returns the bytes as a string.'''
+    '''Reads num_bytes bytes from socket object conn. Returns the bytes as a string.'''
     chunks = list()
     while True:
         chunks.append(conn.recv(1))
@@ -213,11 +323,13 @@ def scheme_lock_release(lock):
     lock.release()
     return None
 
+
 # Environment
 class Env:
     def __init__(self):
         self.env = dict()
         self.parent = None
+        self.root = None
 
     def __setitem__(self, key, val):
         self.env[key] = val
@@ -237,7 +349,14 @@ class Env:
 
 def std_env():
     env = Env()
-    env.env = { 'void'              : lambda *args: None,
+    env.env = { 'if'                : scheme_if,
+                'quote'             : scheme_quote,
+                'define'            : scheme_define,
+                'lambda'            : scheme_lambda,
+                'let'               : scheme_let,
+                'let*'              : scheme_let_star,
+                'begin'             : scheme_begin,
+                'void'              : lambda *args: None,
                 'display'           : scheme_display,
                 'open-output-file'  : scheme_open_output_file,
                 'close-output-port' : scheme_close_output_port,
@@ -316,7 +435,6 @@ class Binding:
             return self._eval
         else:
             return eval_expr(self.expr, self.env)
-
 
 def tokenize(text):
     tokens = list()
@@ -403,87 +521,34 @@ def to_scheme(val):
 	else:
 		return val
 
-def eval_expr(elem, env=global_env):
+def do_apply(clo, args, env):
+    # Is the closure a macro?
+    # Macros should always be provided the environment
+    # And should not evaluate the args
+    if hasattr(clo, 'macro'):
+        return clo(args, env)
+    else:
+        # Evaluate the args and pass to the closure
+        # We need to unpack the arguments from the evaluated list
+        return clo(*[eval_expr(a, env) for a in args])
+
+def eval_expr(expr, env=global_env):
     local_env = Env()
     local_env.parent = env
-    # Any element that is a string should be in the environment
-    if isinstance(elem, str) and not (elem.startswith('"') and elem.endswith('"')):
-        return local_env.find(elem)
-    # Literals are anything that isn't a list or string
-    elif not isinstance(elem, list):
-        return elem
-    # Conditionals
-    elif elem[0] == 'if': # (if test conseq alt)
-        (func, test, conseq, alt) = elem
-        ret = (conseq if eval_expr(test, local_env) else alt)
-        return eval_expr(ret, local_env)
-    # Any list is a function, unless it's a literal list
-    elif elem[0] == 'quote': # '(v1...) or (quote (v1...))
-        return elem[1]
-    # Define
-    elif elem[0] == 'define': # (define name expr) or (define (name params) expr)
-        (func, name, expr) = elem
-        bind = Binding(name, expr, local_env)
-        global_env[bind.name] = bind.eval()
-        return None
-    # Lambda
-    elif elem[0] == 'lambda': # (lambda (params) (expr))
-        (func, name, expr) = elem
-        name.insert(0, None) # A lambda function has no name, only params
-        bind = Binding(name, expr, local_env)
-        return bind.eval()
-    # Let
-    elif elem[0] == 'let': # (let ((a expr_a) (b expr_b)) bodys...) or (let func (id expr...) (bodys...))
-        func_name = list()
-        if isinstance(elem[1], list):
-            bindings = elem[1]
-            bodys = elem[2:]
-        else:
-            func_name.append(elem[1])
-            bindings = elem[2]
-            bodys = elem[3:]
-        # In let, we first create each binding, then we add to the local_env
-        # The bindings are not added as they are made
-        # A binding for let consists of a list of length 2
-        local_binds = dict()
-        for b in bindings:
-            (b_name, b_expr) = b
-            # If we are binding a new function, we need to store the names of the bindings to act as parameters
-            if func_name:
-                func_name.append(b_name)
-            local_binds[b_name] = Binding(b_name, b_expr, local_env).eval()
-        local_env.update(local_binds)
-        # Now bind the function if necessary to the list of bodys
-        # Expression is of type begin, as that supports execution of a list of expressions
-        if func_name:
-            expr = ['begin']
-            [expr.append(e) for e in bodys]
-            b = Binding(func_name, expr, local_env)
-            local_env[b.name] = b.eval()
-        # Return from the last expression in the set of bodys
-        return [eval_expr(e, local_env) for e in bodys][-1]
-    # Let*
-    # Bindings are immediately added to the current local environment
-    # As they are created. This makes them available to subsequent bindings
-    elif elem[0] == 'let*':
-        (func, bindings, expr) = elem
-        for b in bindings:
-            (b_name, b_expr) = b
-            local_env[b_name] = Binding(b_name, b_expr, local_env).eval()
-        return eval_expr(expr, local_env)
-    # Begin
-    # Sequentially executes each function
-    # Returns the output of the last function
-    elif elem[0] == 'begin':
-        out = None
-        for expr in elem[1:]:
-            out = eval_expr(expr, local_env)
-        return out
-    # Otherwise it's in env, and we can evaluate it
+    local_env.root = global_env
+
+    if expr == 'genv':
+        pprint(global_env.env)
+    elif isinstance(expr, list):
+        clo = eval_expr(expr[0], env)
+        return do_apply(clo, expr[1:], local_env)
+    # Any non-enclosed string is a symbol that should
+    # Be in the environment
+    elif isinstance(expr, str) and \
+        not (expr.startswith('"') and expr.endswith('"')):
+            return local_env.find(expr)
     else:
-        func = eval_expr(elem[0], local_env)
-        body = [eval_expr(e, local_env) for e in elem[1:]]
-        return func(*body)
+        return expr
 
 # Read, eval, print
 def rep(text):
@@ -505,6 +570,7 @@ def repl():
             try:
                 rep(text)
             except Exception:
+                print_exc()
                 pass
 
 # Main line
